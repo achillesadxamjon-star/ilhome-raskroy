@@ -2,32 +2,38 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>ilHOME - Wood & Serve Raskroy Buyurtma Tizimi</title>
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-
   <!-- React & ReactDOM CDN -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   
-  <!-- Babel Standalone for JSX compilation -->
+  <!-- Babel for JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
-  <!-- SheetJS (XLSX) CDN -->
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- SheetJS (XLSX) for Export/Import -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <style>
+    html, body {
+      max-width: 100vw;
+      overflow-x: hidden;
+    }
     body {
       font-family: 'Plus Jakarta Sans', sans-serif;
       background-color: #F7F3ED;
-      color: #1E1E24;
+      color: #1c1917;
+      margin: 0;
+      padding: 0;
     }
     .font-script {
       font-family: 'Caveat', cursive;
@@ -36,6 +42,15 @@
       font-feature-settings: "tnum";
       font-variant-numeric: tabular-nums;
     }
+    /* Hide scrollbar for Chrome, Safari and Opera */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    /* Hide scrollbar for IE, Edge and Firefox */
+    .no-scrollbar {
+      -ms-overflow-style: none;  /* IE and Edge */
+      scrollbar-width: none;  /* Firefox */
+    }
     @media screen and (max-width: 768px) {
       input, select, textarea {
         font-size: 16px !important;
@@ -43,14 +58,13 @@
     }
   </style>
 </head>
-<body class="min-h-screen flex flex-col antialiased">
-
+<body>
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
-    // Presets
+    // --- PRESETS & CONSTANTS ---
     const MATERIAL_PRESETS = [
       "LDSP 18mm Oq",
       "LDSP 18mm Yong'oq",
@@ -58,6 +72,8 @@
       "MDF 18mm Oq",
       "LDSP 18mm Kulrang",
     ];
+
+    const COMMON_DIMENSIONS = [2800, 2070, 700, 560, 400, 300];
 
     const PART_NAME_SUGGESTIONS = [
       "Yon devor",
@@ -69,29 +85,43 @@
       "Javroncha"
     ];
 
-    const COMMON_DIMENSIONS = [2800, 2070, 700, 560, 400, 300, 100];
-
-    // Main App
+    // Main App Component
     function App() {
+      // Customer & Material state
       const [customer, setCustomer] = useState(() => {
         const saved = localStorage.getItem('ilhome_customer');
         return saved ? JSON.parse(saved) : { name: '', phone: '', material: '' };
       });
 
+      // Order Parts state
       const [parts, setParts] = useState(() => {
         const saved = localStorage.getItem('ilhome_parts');
         return saved ? JSON.parse(saved) : [];
       });
 
-      const [telegramConfig, setTelegramConfig] = useState(() => {
-        const saved = localStorage.getItem('ilhome_telegram_config');
-        return saved ? JSON.parse(saved) : { botToken: '', chatId: '' };
+      // New Part Form State
+      const [length, setLength] = useState('');
+      const [width, setWidth] = useState('');
+      const [quantity, setQuantity] = useState('1');
+      const [name, setName] = useState('');
+      const [texture, setTexture] = useState(true);
+
+      // EdgeBands selection: U1, U2, K1, K2
+      const [edgeBands, setEdgeBands] = useState({
+        u1: true,
+        u2: true,
+        k1: true,
+        k2: true,
       });
 
-      const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-      const [isSending, setIsSending] = useState(false);
-      const [showSuccessModal, setShowSuccessModal] = useState(false);
+      // Quick edge preset mode
+      const [edgePreset, setEdgePreset] = useState('4ga'); // '4ga', '2U', '2K', 'Yo'q', 'custom'
 
+      // Editing state
+      const [editingId, setEditingId] = useState(null);
+      const [formError, setFormError] = useState('');
+
+      // Save to localStorage
       useEffect(() => {
         localStorage.setItem('ilhome_customer', JSON.stringify(customer));
       }, [customer]);
@@ -100,190 +130,257 @@
         localStorage.setItem('ilhome_parts', JSON.stringify(parts));
       }, [parts]);
 
-      useEffect(() => {
-        localStorage.setItem('ilhome_telegram_config', JSON.stringify(telegramConfig));
-      }, [telegramConfig]);
-
-      const handleAddPart = (newPart) => {
-        setParts(prev => [...prev, newPart]);
-      };
-
-      const handleUpdatePart = (id, updated) => {
-        setParts(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
-      };
-
-      const handleDeletePart = (id) => {
-        setParts(prev => prev.filter(p => p.id !== id));
-      };
-
-      const handleDuplicatePart = (part) => {
-        const dup = { ...part, id: 'part_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4) };
-        setParts(prev => [...prev, dup]);
-      };
-
-      const handleClearOrder = () => {
-        if (window.confirm("Barcha kiritilgan detallar va mijoz ma'lumotlarini o'chirishni xohlaysizmi?")) {
-          setParts([]);
-          setCustomer({ name: '', phone: '', material: '' });
+      // Apply Edge Preset
+      const applyEdgePreset = (preset) => {
+        setEdgePreset(preset);
+        if (preset === '4ga') {
+          setEdgeBands({ u1: true, u2: true, k1: true, k2: true });
+        } else if (preset === '2U') {
+          setEdgeBands({ u1: true, u2: true, k1: false, k2: false });
+        } else if (preset === '2K') {
+          setEdgeBands({ u1: false, u2: false, k1: true, k2: true });
+        } else if (preset === 'Yo\'q') {
+          setEdgeBands({ u1: false, u2: false, k1: false, k2: false });
         }
       };
 
-      // Export Excel
-      const handleDownloadExcel = () => {
-        if (parts.length === 0) return;
+      const toggleEdge = (side) => {
+        setEdgeBands(prev => {
+          const next = { ...prev, [side]: !prev[side] };
+          if (next.u1 && next.u2 && next.k1 && next.k2) setEdgePreset('4ga');
+          else if (next.u1 && next.u2 && !next.k1 && !next.k2) setEdgePreset('2U');
+          else if (!next.u1 && !next.u2 && next.k1 && next.k2) setEdgePreset('2K');
+          else if (!next.u1 && !next.u2 && !next.k1 && !next.k2) setEdgePreset('Yo\'q');
+          else setEdgePreset('custom');
+          return next;
+        });
+      };
 
-        const data = [
-          ["ilHOME WOOD & SERVE - RASKROY BUYURTMA FAYLI"],
-          ["Mijoz Ismi:", customer.name || "Kiritilmagan"],
-          ["Telefon:", customer.phone || "Kiritilmagan"],
-          ["Material:", customer.material || "Kiritilmagan"],
-          ["Sana:", new Date().toLocaleDateString('uz-UZ')],
-          [],
-          ["№", "Uzunlik (mm)", "Kenglik (mm)", "Miqdor (dona)", "Tekstura", "U1 Kromka", "U2 Kromka", "K1 Kromka", "K2 Kromka", "Detal Nomi", "Yuza (m²)"],
-          ...parts.map((p, idx) => [
-            idx + 1,
-            p.length,
-            p.width,
-            p.quantity,
-            p.texture ? "HA" : "YO'Q",
-            p.edges.u1 ? "Kromka" : "—",
-            p.edges.u2 ? "Kromka" : "—",
-            p.edges.k1 ? "Kromka" : "—",
-            p.edges.k2 ? "Kromka" : "—",
-            p.name || "Detal",
-            ((p.length * p.width * p.quantity) / 1_000_000).toFixed(3)
-          ])
-        ];
+      const adjustQty = (delta) => {
+        const val = parseInt(quantity, 10) || 0;
+        const next = Math.max(1, val + delta);
+        setQuantity(next.toString());
+      };
 
-        const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
-        const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
+      const resetForm = () => {
+        setLength('');
+        setWidth('');
+        setQuantity('1');
+        setName('');
+        setTexture(true);
+        setEdgeBands({ u1: true, u2: true, k1: true, k2: true });
+        setEdgePreset('4ga');
+        setEditingId(null);
+        setFormError('');
+      };
 
-        data.push([]);
-        data.push(["JAMI DETALLAR SONI:", totalPcs + " dona"]);
-        data.push(["UMUMIY YUZA:", totalM2.toFixed(3) + " m²"]);
+      const handleAddOrUpdatePart = (e) => {
+        e.preventDefault();
+        const l = parseFloat(length);
+        const w = parseFloat(width);
+        const q = parseInt(quantity, 10);
 
-        const ws = XLSX.utils.aoa_to_sheet(data);
+        if (!l || l <= 0) {
+          setFormError("Uzunlikni to'g'ri kiriting (mm da).");
+          return;
+        }
+        if (!w || w <= 0) {
+          setFormError("Kenglikni to'g'ri kiriting (mm da).");
+          return;
+        }
+        if (!q || q <= 0) {
+          setFormError("Miqdorni kamida 1 dona qiling.");
+          return;
+        }
+
+        setFormError('');
+
+        if (editingId) {
+          setParts(parts.map(p => p.id === editingId ? {
+            ...p,
+            length: l,
+            width: w,
+            quantity: q,
+            name: name.trim() || 'Detal',
+            texture,
+            edgeBands: { ...edgeBands }
+          } : p));
+        } else {
+          const newPart = {
+            id: Date.now().toString(),
+            length: l,
+            width: w,
+            quantity: q,
+            name: name.trim() || 'Detal',
+            texture,
+            edgeBands: { ...edgeBands }
+          };
+          setParts([...parts, newPart]);
+        }
+
+        resetForm();
+      };
+
+      const handleEdit = (part) => {
+        setEditingId(part.id);
+        setLength(part.length.toString());
+        setWidth(part.width.toString());
+        setQuantity(part.quantity.toString());
+        setName(part.name);
+        setTexture(part.texture);
+        setEdgeBands({ ...part.edgeBands });
+        
+        const { u1, u2, k1, k2 } = part.edgeBands;
+        if (u1 && u2 && k1 && k2) setEdgePreset('4ga');
+        else if (u1 && u2 && !k1 && !k2) setEdgePreset('2U');
+        else if (!u1 && !u2 && k1 && k2) setEdgePreset('2K');
+        else if (!u1 && !u2 && !k1 && !k2) setEdgePreset('Yo\'q');
+        else setEdgePreset('custom');
+
+        window.scrollTo({ top: 150, behavior: 'smooth' });
+      };
+
+      const handleDelete = (id) => {
+        if (confirm("Ushbu detalni o'chirmoqchimisiz?")) {
+          setParts(parts.filter(p => p.id !== id));
+          if (editingId === id) resetForm();
+        }
+      };
+
+      const handleClearOrder = () => {
+        if (confirm("Barcha detallar va ma'lumotlar tozalanadi. Ishonchingiz komilmi?")) {
+          setParts([]);
+          setCustomer({ name: '', phone: '', material: '' });
+          resetForm();
+        }
+      };
+
+      // Summary Calculations
+      const totalPartCount = parts.reduce((sum, p) => sum + p.quantity, 0);
+      const totalAreaM2 = parts.reduce((sum, p) => sum + (p.length * p.width * p.quantity) / 1000000, 0);
+      const totalEdgeMeters = parts.reduce((sum, p) => {
+        let edgeLengthMm = 0;
+        if (p.edgeBands.u1) edgeLengthMm += p.length;
+        if (p.edgeBands.u2) edgeLengthMm += p.length;
+        if (p.edgeBands.k1) edgeLengthMm += p.width;
+        if (p.edgeBands.k2) edgeLengthMm += p.width;
+        return sum + (edgeLengthMm * p.quantity) / 1000;
+      }, 0);
+
+      // Export to Excel
+      const exportToExcel = () => {
+        if (parts.length === 0) {
+          alert("Eksport qilish uchun kamida 1 ta detal qo'shing.");
+          return;
+        }
+
+        const data = parts.map((p, idx) => {
+          const edges = [];
+          if (p.edgeBands.u1) edges.push('U1');
+          if (p.edgeBands.u2) edges.push('U2');
+          if (p.edgeBands.k1) edges.push('K1');
+          if (p.edgeBands.k2) edges.push('K2');
+
+          return {
+            "№": idx + 1,
+            "Detal Nomi": p.name,
+            "Uzunlik (mm)": p.length,
+            "Kenglik (mm)": p.width,
+            "Soni (dona)": p.quantity,
+            "Kromka (Chekka)": edges.join(', ') || 'Yo\'q',
+            "Tekstura": p.texture ? 'Ha' : 'Yo\'q',
+            "Maydon (m²)": ((p.length * p.width * p.quantity) / 1000000).toFixed(3)
+          };
+        });
+
+        const ws = XLSX.utils.json_to_sheet(data);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Buyurtma");
+        XLSX.utils.book_append_sheet(wb, ws, "Raskroy Buyurtma");
 
-        const fileName = `Raskroy_${(customer.name || 'Buyurtma').replace(/\s+/g, '_')}_${Date.now()}.xlsx`;
+        const fileName = `${customer.name ? customer.name.replace(/\s+/g, '_') : 'Buyurtma'}_ilHOME_raskroy.xlsx`;
         XLSX.writeFile(wb, fileName);
       };
 
       // Send to Telegram
-      const handleSendTelegram = async () => {
-        if (!customer.name.trim() || !customer.phone.trim() || !customer.material.trim()) {
-          alert("Iltimos, avval Mijoz ismi, telefon nomeri va material nomini to'liq kiriting!");
-          return;
-        }
-
+      const sendToTelegram = () => {
         if (parts.length === 0) {
-          alert("Iltimos, kamida 1 ta detal qo'shing!");
+          alert("Yuborish uchun kamida 1 ta detal kiriting.");
           return;
         }
 
-        if (!telegramConfig.botToken || !telegramConfig.chatId) {
-          setIsSettingsOpen(true);
-          alert("Telegram Bot token yoki Chat ID sozlangan emas. Iltimos, sozlamalarni kiriting!");
-          return;
-        }
+        let text = `📦 *ilHOME WOOD & SERVE - BUYURTMA*\n\n`;
+        text += `👤 *Mijoz:* ${customer.name || 'Kiritilmagan'}\n`;
+        text += `📞 *Tel:* ${customer.phone || 'Kiritilmagan'}\n`;
+        text += `🪵 *Material:* ${customer.material || 'Kiritilmagan'}\n\n`;
+        text += `📐 *DETALLAR RO'YXATI (${parts.length} tur, ${totalPartCount} dona):*\n`;
 
-        setIsSending(true);
+        parts.forEach((p, i) => {
+          const e = [];
+          if (p.edgeBands.u1) e.push('U1');
+          if (p.edgeBands.u2) e.push('U2');
+          if (p.edgeBands.k1) e.push('K1');
+          if (p.edgeBands.k2) e.push('K2');
+          const edgeStr = e.length > 0 ? e.join('+') : 'Yo\'q';
 
-        try {
-          const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
-          const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
+          text += `${i+1}. *${p.name}*: ${p.length}x${p.width} mm - ${p.quantity} dona [Kromka: ${edgeStr}] ${p.texture ? '🧭' : ''}\n`;
+        });
 
-          let msg = `🛍 *YANGI RASKROY BUYURTMA — ilHOME*\n\n`;
-          msg += `👤 *Mijoz:* ${customer.name}\n`;
-          msg += `📞 *Tel:* ${customer.phone}\n`;
-          msg += `🪵 *Material:* ${customer.material}\n`;
-          msg += `📊 *Jami:* ${parts.length} xil detal (${totalPcs} dona), ${totalM2.toFixed(2)} m²\n\n`;
-          msg += `📐 *Detallar ro'yxati:*\n`;
+        text += `\n📊 *UMUMIY HISOB:*\n`;
+        text += `• Umumiy Maydon: *${totalAreaM2.toFixed(2)} m²*\n`;
+        text += `• Umumiy Kromka: *${totalEdgeMeters.toFixed(1)} metr*\n`;
 
-          parts.forEach((p, i) => {
-            const uStr = (p.edges.u1 ? 'U1 ' : '') + (p.edges.u2 ? 'U2 ' : '');
-            const kStr = (p.edges.k1 ? 'K1 ' : '') + (p.edges.k2 ? 'K2 ' : '');
-            const edgesStr = (uStr || kStr) ? `[Kromka: ${uStr}${kStr}]` : '[Kromkasiz]';
-            const texStr = p.texture ? '🪵Tekstura' : '';
-            msg += `${i+1}. *${p.length}x${p.width}mm* - ${p.quantity}dona | ${p.name || 'Detal'} ${texStr} ${edgesStr}\n`;
-          });
-
-          // Text message API
-          const textUrl = `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
-          const res = await fetch(textUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: telegramConfig.chatId,
-              text: msg,
-              parse_mode: 'Markdown'
-            })
-          });
-
-          if (!res.ok) {
-            throw new Error("Telegram API xatosi: " + res.statusText);
-          }
-
-          setShowSuccessModal(true);
-        } catch (err) {
-          alert("Xatolik yuz berdi: " + err.message);
-        } finally {
-          setIsSending(false);
-        }
+        const encoded = encodeURIComponent(text);
+        window.open(`https://t.me/share/url?url=${encoded}`, '_blank');
       };
 
       return (
-        <div className="min-h-screen flex flex-col">
+        <div className="min-h-screen flex flex-col w-full max-w-full overflow-x-hidden">
           {/* Clean Header */}
-          <header className="bg-slate-900 border-b border-amber-950/40 text-white sticky top-0 z-30 shadow-md">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+          <header className="bg-slate-900 border-b border-amber-950/40 text-white sticky top-0 z-30 shadow-md w-full">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between w-full overflow-hidden">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <div className="flex flex-col select-none">
                   <div className="flex items-baseline gap-0.5">
-                    <span className="relative font-script text-3xl sm:text-4xl font-bold text-red-600 tracking-wide flex items-center">
+                    <span className="relative font-script text-2xl sm:text-4xl font-bold text-red-600 tracking-wide flex items-center">
                       il
                     </span>
-                    <span className="font-display text-2xl sm:text-3xl font-extrabold text-white tracking-wider ml-0.5">
+                    <span className="font-display text-xl sm:text-3xl font-extrabold text-white tracking-wider ml-0.5">
                       HOME
                     </span>
                   </div>
-                  <span className="text-[10px] font-semibold text-amber-200/80 tracking-[0.2em] -mt-1 uppercase">
+                  <span className="text-[9px] sm:text-[10px] font-semibold text-amber-200/80 tracking-[0.2em] -mt-1 uppercase">
                     WOOD & SERVE
                   </span>
                 </div>
-                <span className="hidden sm:inline-block px-2.5 py-0.5 text-[11px] font-semibold bg-amber-950/60 text-amber-200 rounded-full border border-amber-800/40">
+                <span className="hidden md:inline-block px-2.5 py-0.5 text-[11px] font-semibold bg-amber-950/60 text-amber-200 rounded-full border border-amber-800/40">
                   Raskroy buyurtma tizimi
                 </span>
               </div>
 
               <div className="flex items-center gap-2">
-                {parts.length > 0 && (
-                  <button
-                    onClick={handleClearOrder}
-                    type="button"
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:text-rose-200 bg-rose-950/60 hover:bg-rose-900/80 border border-rose-800/60 rounded-xl transition-all cursor-pointer"
-                  >
-                    🔄 <span>Tozalash</span>
-                  </button>
-                )}
+                <button
+                  onClick={handleClearOrder}
+                  type="button"
+                  className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-semibold text-rose-300 hover:text-rose-200 bg-rose-950/60 hover:bg-rose-900/80 border border-rose-800/60 rounded-xl transition-all cursor-pointer"
+                >
+                  🔄 <span>Tozalash</span>
+                </button>
               </div>
             </div>
           </header>
 
-          {/* Main Body */}
-          <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-36 sm:pb-16">
+          <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-6 pb-36 sm:pb-16 overflow-x-hidden">
             
             {/* Customer & Material Form */}
-            <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 p-4 sm:p-6 mb-6">
-              <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-stone-200/80">
-                <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-800 flex items-center gap-2">
+            <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 p-3 sm:p-6 mb-4 sm:mb-6">
+              <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-1 mb-3 pb-2 border-b border-stone-200/80">
+                <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-800 flex items-center gap-1.5">
                   👤 Mijoz Ma'lumotlari
                 </h2>
-                <span className="text-xs text-stone-500 font-medium">1-bosqich: Mijoz va Material</span>
+                <span className="text-[11px] text-stone-500 font-medium">1-bosqich: Mijoz va Material</span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-xs font-bold text-stone-700 mb-1">Mijoz Ismi <span className="text-red-500">*</span></label>
                   <input
@@ -291,39 +388,39 @@
                     value={customer.name}
                     onChange={(e) => setCustomer({...customer, name: e.target.value})}
                     placeholder="Masalan: Alisher Navoiy"
-                    className="w-full px-3.5 h-12 text-base font-medium bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 text-stone-900"
+                    className="w-full px-3 h-11 sm:h-12 text-sm sm:text-base font-medium bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 text-stone-900"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-stone-700 mb-1">Telefon Nomeri <span className="text-red-500">*</span></label>
                   <input
-                    type="tel"
+                    type="text"
                     value={customer.phone}
                     onChange={(e) => setCustomer({...customer, phone: e.target.value})}
                     placeholder="+998 90 123 45 67"
-                    className="w-full px-3.5 h-12 text-base font-bold font-mono-num bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 text-stone-900"
+                    className="w-full px-3 h-11 sm:h-12 text-sm sm:text-base font-bold font-mono-num bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 text-stone-900"
                   />
                 </div>
-                <div>
+                <div className="sm:col-span-2 md:col-span-1">
                   <label className="block text-xs font-bold text-stone-700 mb-1">Material Nomi <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     value={customer.material}
                     onChange={(e) => setCustomer({...customer, material: e.target.value})}
                     placeholder="Masalan: LDSP 18mm Yong'oq"
-                    className="w-full px-3.5 h-12 text-base font-medium bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 text-stone-900"
+                    className="w-full px-3 h-11 sm:h-12 text-sm sm:text-base font-medium bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 text-stone-900"
                   />
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-1.5 pt-2 border-t border-stone-200/50">
-                <span className="text-[11px] text-stone-500 font-semibold mr-1">🏷️ Tezkor material:</span>
+              <div className="mt-3 flex items-center gap-1.5 pt-2 border-t border-stone-200/50 overflow-x-auto no-scrollbar max-w-full pb-0.5">
+                <span className="text-[11px] text-stone-500 font-semibold shrink-0">🏷️ Tezkor material:</span>
                 {MATERIAL_PRESETS.map((p) => (
                   <button
                     key={p}
                     type="button"
                     onClick={() => setCustomer({...customer, material: p})}
-                    className={`px-3 py-1.5 text-xs rounded-xl border transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 text-xs rounded-xl border transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                       customer.material === p
                         ? 'bg-red-50 text-red-700 border-red-300 font-bold'
                         : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-200'
@@ -335,451 +432,418 @@
               </div>
             </div>
 
-            {/* Part Input Panel */}
-            <PartInputWidget onAddPart={handleAddPart} />
-
-            {/* Parts Table */}
-            <PartsTableWidget
-              parts={parts}
-              onUpdatePart={handleUpdatePart}
-              onDeletePart={handleDeletePart}
-              onDuplicatePart={handleDuplicatePart}
+            {/* Part Input & Edgeband Selector Form */}
+            <PartInputPanel
+              length={length}
+              setLength={setLength}
+              width={width}
+              setWidth={setWidth}
+              quantity={quantity}
+              setQuantity={setQuantity}
+              name={name}
+              setName={setName}
+              texture={texture}
+              setTexture={setTexture}
+              edgeBands={edgeBands}
+              toggleEdge={toggleEdge}
+              edgePreset={edgePreset}
+              applyEdgePreset={applyEdgePreset}
+              adjustQty={adjustQty}
+              onSubmit={handleAddOrUpdatePart}
+              editingId={editingId}
+              onCancelEdit={resetForm}
+              formError={formError}
             />
 
-            {/* Order Summary Bar */}
-            {parts.length > 0 && (
-              <OrderSummaryWidget
-                customer={customer}
-                parts={parts}
-                onDownloadExcel={handleDownloadExcel}
-                onSendTelegram={handleSendTelegram}
-                isSending={isSending}
-              />
-            )}
+            {/* Parts Table */}
+            <PartsTable
+              parts={parts}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              editingId={editingId}
+            />
+
           </main>
 
-          {/* Telegram Settings Modal */}
-          {isSettingsOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg p-6">
-                <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
-                  <h3 className="font-extrabold text-base text-slate-900">Telegram Bot Sozlamalari</h3>
-                  <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-700">✕</button>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Bot Token</label>
-                    <input
-                      type="text"
-                      value={telegramConfig.botToken}
-                      onChange={(e) => setTelegramConfig({...telegramConfig, botToken: e.target.value})}
-                      placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-                      className="w-full h-11 px-3 border border-slate-300 rounded-xl text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Chat ID / Kanal ID</label>
-                    <input
-                      type="text"
-                      value={telegramConfig.chatId}
-                      onChange={(e) => setTelegramConfig({...telegramConfig, chatId: e.target.value})}
-                      placeholder="-100123456789 yoki 987654321"
-                      className="w-full h-11 px-3 border border-slate-300 rounded-xl text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="mt-6 flex justify-end gap-2">
-                  <button onClick={() => setIsSettingsOpen(false)} className="px-4 py-2 bg-stone-200 text-stone-800 rounded-xl text-xs font-bold">Yopish</button>
-                  <button onClick={() => { setIsSettingsOpen(false); alert("Sozlamalar saqlandi!"); }} className="px-5 py-2 bg-red-600 text-white rounded-xl text-xs font-bold">Saqlash</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Success Modal */}
-          {showSuccessModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-              <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center space-y-4">
-                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-2xl">✓</div>
-                <h3 className="text-lg font-black text-slate-900">Buyurtma Yuborildi!</h3>
-                <p className="text-xs text-slate-600">Buyurtma Telegram boti orqali muvaffaqiyatli yetkazildi.</p>
-                <button onClick={() => setShowSuccessModal(false)} className="w-full py-3 bg-red-600 text-white font-bold rounded-xl text-sm">Yaxshi</button>
-              </div>
-            </div>
-          )}
-
-          {/* Footer */}
-          <footer className="bg-slate-950 text-stone-400 text-xs py-8 border-t border-amber-950/40 mt-auto">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
-              <div className="flex items-center gap-2">
-                <span className="font-script text-3xl font-extrabold text-red-500">il</span>
-                <span className="font-extrabold tracking-wider text-xl text-stone-100">HOME</span>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-amber-500 border-l border-stone-800 pl-2.5">WOOD & SERVE</span>
-              </div>
-              <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="text-stone-500 hover:text-stone-300 text-[11px] underline"
-              >
-                ⚙️ Admin Sozlamalari
-              </button>
-            </div>
-          </footer>
+          {/* Sticky Bottom Order Summary Bar */}
+          <OrderSummaryBar
+            partCount={totalPartCount}
+            totalArea={totalAreaM2}
+            totalEdge={totalEdgeMeters}
+            onExportExcel={exportToExcel}
+            onSendTelegram={sendToTelegram}
+            hasParts={parts.length > 0}
+          />
         </div>
       );
     }
 
-    // Part Input Widget
-    function PartInputWidget({ onAddPart }) {
-      const [length, setLength] = useState('');
-      const [width, setWidth] = useState('');
-      const [quantity, setQuantity] = useState('1');
-      const [texture, setTexture] = useState(true);
-      const [name, setName] = useState('');
-      const [edges, setEdges] = useState({ u1: true, u2: true, k1: true, k2: true });
-
-      const adjustQty = (delta) => {
-        const cur = parseInt(quantity, 10) || 1;
-        setQuantity(Math.max(1, cur + delta).toString());
-      };
-
-      const handleSubmit = (e) => {
-        if (e) e.preventDefault();
-        const l = parseInt(length, 10);
-        const w = parseInt(width, 10);
-        const q = parseInt(quantity, 10);
-
-        if (!l || l <= 0 || !w || w <= 0 || !q || q <= 0) {
-          alert("Iltimos, uzunlik, kenglik va miqdorni to'g'ri kiriting!");
-          return;
-        }
-
-        onAddPart({
-          id: 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-          length: l,
-          width: w,
-          quantity: q,
-          texture,
-          edges,
-          name: name.trim() || 'Detal'
-        });
-
-        setLength('');
-        setWidth('');
-        setName('');
-      };
-
+    // --- Sub-Component: PartInputPanel ---
+    function PartInputPanel({
+      length, setLength,
+      width, setWidth,
+      quantity, setQuantity,
+      name, setName,
+      texture, setTexture,
+      edgeBands, toggleEdge,
+      edgePreset, applyEdgePreset,
+      adjustQty, onSubmit,
+      editingId, onCancelEdit, formError
+    }) {
       return (
-        <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 p-4 sm:p-6 mb-6">
-          <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-stone-200/80">
-            <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-800">
-              ➕ Yangi Detal Qo'shish
+        <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 p-3 sm:p-6 mb-4 sm:mb-6">
+          <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-1 mb-3 pb-2 border-b border-stone-200/80">
+            <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-800">
+              {editingId ? '✏️ Detalni Tahrirlash' : '➕ Yangi Detal Qo\'shish'}
             </h2>
-            <span className="text-xs text-stone-500 font-medium">2-bosqich: O'lchamlar va Kromka</span>
+            <span className="text-[11px] text-stone-500 font-medium">2-bosqich: O'lchamlar va Kromka</span>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-7 space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div className="col-span-1">
-                  <label className="text-xs font-extrabold text-stone-800 block mb-1">Uzunlik (mm) *</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={length}
-                    onChange={(e) => setLength(e.target.value)}
-                    placeholder="700"
-                    className="w-full h-12 sm:h-14 px-3 text-lg sm:text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-xl sm:rounded-2xl"
-                  />
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {COMMON_DIMENSIONS.slice(0, 4).map((dim) => (
-                      <button key={dim} type="button" onClick={() => setLength(dim.toString())} className="px-2 py-0.5 text-[11px] font-bold bg-white border border-stone-200 rounded-lg">{dim}</button>
-                    ))}
+          {formError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-bold flex items-center gap-2">
+              <span>⚠️</span>
+              <span>{formError}</span>
+            </div>
+          )}
+
+          <form onSubmit={onSubmit}>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+              
+              {/* Left Column: Dimensions & Details */}
+              <div className="lg:col-span-7 space-y-3 sm:space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+                  
+                  {/* Length */}
+                  <div className="col-span-1">
+                    <label className="text-xs font-extrabold text-stone-800 block mb-1">Uzunlik (mm) *</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={length}
+                        onChange={(e) => setLength(e.target.value)}
+                        placeholder="700"
+                        className="w-full h-11 sm:h-14 pl-3 pr-8 text-base sm:text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-xl sm:rounded-2xl text-stone-900"
+                      />
+                      <span className="absolute right-2 top-2.5 sm:top-4 text-xs font-bold text-stone-400 pointer-events-none">mm</span>
+                    </div>
+                    <div className="flex items-center gap-1 mt-1.5 overflow-x-auto no-scrollbar max-w-full pb-0.5">
+                      {COMMON_DIMENSIONS.slice(0, 4).map((dim) => (
+                        <button key={dim} type="button" onClick={() => setLength(dim.toString())} className="px-2 py-0.5 text-[10px] font-bold bg-white border border-stone-200 rounded-lg shrink-0">{dim}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Width */}
+                  <div className="col-span-1">
+                    <label className="text-xs font-extrabold text-stone-800 block mb-1">Kenglik (mm) *</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={width}
+                        onChange={(e) => setWidth(e.target.value)}
+                        placeholder="400"
+                        className="w-full h-11 sm:h-14 pl-3 pr-8 text-base sm:text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-xl sm:rounded-2xl text-stone-900"
+                      />
+                      <span className="absolute right-2 top-2.5 sm:top-4 text-xs font-bold text-stone-400 pointer-events-none">mm</span>
+                    </div>
+                    <div className="flex items-center gap-1 mt-1.5 overflow-x-auto no-scrollbar max-w-full pb-0.5">
+                      {COMMON_DIMENSIONS.slice(2, 6).map((dim) => (
+                        <button key={dim} type="button" onClick={() => setWidth(dim.toString())} className="px-2 py-0.5 text-[10px] font-bold bg-white border border-stone-200 rounded-lg shrink-0">{dim}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Quantity */}
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-xs font-extrabold text-stone-800 block mb-1">Miqdor (dona) *</label>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => adjustQty(-1)} className="w-10 h-11 sm:h-14 bg-stone-200 rounded-xl sm:rounded-2xl font-bold text-lg shrink-0">-</button>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={quantity}
+                        onChange={(e) => setQuantity(e.target.value)}
+                        className="w-full h-11 sm:h-14 text-center text-base sm:text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-xl sm:rounded-2xl text-stone-900"
+                      />
+                      <button type="button" onClick={() => adjustQty(1)} className="w-10 h-11 sm:h-14 bg-red-100 text-red-700 rounded-xl sm:rounded-2xl font-bold text-lg shrink-0">+</button>
+                    </div>
+                    <div className="flex items-center gap-1 mt-1.5 overflow-x-auto no-scrollbar max-w-full pb-0.5">
+                      {[1, 2, 4, 6, 8, 10].map((q) => (
+                        <button
+                          key={`q-${q}`}
+                          type="button"
+                          onClick={() => setQuantity(q.toString())}
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded-lg border cursor-pointer shrink-0 ${
+                            quantity === q.toString()
+                              ? 'bg-red-600 text-white border-red-700'
+                              : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-200'
+                          }`}
+                        >
+                          {q}d
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="col-span-1">
-                  <label className="text-xs font-extrabold text-stone-800 block mb-1">Kenglik (mm) *</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={width}
-                    onChange={(e) => setWidth(e.target.value)}
-                    placeholder="400"
-                    className="w-full h-12 sm:h-14 px-3 text-lg sm:text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-xl sm:rounded-2xl"
-                  />
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {COMMON_DIMENSIONS.slice(2, 6).map((dim) => (
-                      <button key={dim} type="button" onClick={() => setWidth(dim.toString())} className="px-2 py-0.5 text-[11px] font-bold bg-white border border-stone-200 rounded-lg">{dim}</button>
-                    ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <div>
+                    <label className="block text-xs font-extrabold text-stone-800 mb-1">Tekstura (Yog'och Yo'nalishi)</label>
+                    <div className="bg-amber-50/90 border border-amber-300/90 rounded-2xl p-2 sm:p-2.5 flex justify-between items-center shadow-2xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center text-amber-800 font-bold text-xs">🧭</span>
+                        <span className="text-xs font-extrabold text-stone-800">Tekstura</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTexture(!texture)}
+                        className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          texture ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-stone-200 text-stone-700'
+                        }`}
+                      >
+                        {texture ? 'Ha (Muhim)' : 'Yo\'q'}
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="text-xs font-extrabold text-stone-800 block mb-1">Miqdor (dona) *</label>
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => adjustQty(-1)} className="w-12 h-12 sm:h-14 bg-stone-200 rounded-xl sm:rounded-2xl font-bold text-lg">-</button>
+                  <div>
+                    <label className="block text-xs font-extrabold text-stone-800 mb-1">Detal Nomi</label>
                     <input
-                      type="number"
-                      inputMode="numeric"
-                      value={quantity}
-                      onChange={(e) => setQuantity(e.target.value)}
-                      className="w-full h-12 sm:h-14 text-center text-lg sm:text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-xl sm:rounded-2xl"
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Masalan: Yon devor"
+                      className="w-full h-11 px-3 text-sm font-medium bg-white border border-stone-300 rounded-2xl text-stone-900"
                     />
-                    <button type="button" onClick={() => adjustQty(1)} className="w-12 h-12 sm:h-14 bg-red-100 text-red-700 rounded-xl sm:rounded-2xl font-bold text-lg">+</button>
                   </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar max-w-full pb-0.5">
+                  <span className="text-[11px] text-stone-500 font-bold shrink-0">Tavsiyalar:</span>
+                  {PART_NAME_SUGGESTIONS.map((s) => (
+                    <button key={s} type="button" onClick={() => setName(s)} className="px-2 py-0.5 text-xs bg-white text-stone-700 border border-stone-200 rounded-xl shrink-0 whitespace-nowrap">{s}</button>
+                  ))}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div>
-                  <label className="block text-xs font-extrabold text-stone-800 mb-1">Tekstura (Yog'och Yo'nalishi)</label>
+              {/* Right Column: EdgeBand Selector & Submit */}
+              <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
+                <EdgeBandSelector
+                  edgeBands={edgeBands}
+                  toggleEdge={toggleEdge}
+                  edgePreset={edgePreset}
+                  applyEdgePreset={applyEdgePreset}
+                  lengthVal={length || 'U'}
+                  widthVal={width || 'K'}
+                />
+
+                <div className="flex gap-2">
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={onCancelEdit}
+                      className="px-4 h-14 bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold rounded-2xl transition-all cursor-pointer"
+                    >
+                      Bekor qilish
+                    </button>
+                  )}
                   <button
-                    type="button"
-                    onClick={() => setTexture(!texture)}
-                    className={`w-full h-12 px-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between ${texture ? 'bg-amber-100/80 text-amber-950 border-amber-300' : 'bg-stone-200/70 text-stone-600'}`}
+                    type="submit"
+                    className="flex-1 h-14 bg-red-600 hover:bg-red-700 text-white font-extrabold text-base tracking-wide rounded-2xl shadow-md transition-all cursor-pointer active:scale-[0.99]"
                   >
-                    <span>🧭 Tekstura</span>
-                    <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-600 text-white">{texture ? 'Ha (Muhim)' : 'Yo\'q'}</span>
+                    {editingId ? 'DETALNI SAQLASH' : 'DETALNI JADVALGA QO\'SHISH'}
                   </button>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold text-stone-800 mb-1">Detal Nomi</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Masalan: Yon devor"
-                    className="w-full h-12 px-3.5 text-base font-medium bg-white border border-stone-300 rounded-2xl"
-                  />
-                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                <span className="text-[11px] text-stone-500 font-bold mr-1">Tavsiyalar:</span>
-                {PART_NAME_SUGGESTIONS.map((s) => (
-                  <button key={s} type="button" onClick={() => setName(s)} className="px-2.5 py-1 text-xs bg-white text-stone-700 border border-stone-200 rounded-xl">{s}</button>
-                ))}
-              </div>
             </div>
+          </form>
+        </div>
+      );
+    }
 
-            {/* Edge Selector */}
-            <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
-              <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-stone-800">Kromka (Chekka)</span>
-                  <div className="flex gap-1 text-[11px]">
-                    <button onClick={() => setEdges({u1:true,u2:true,k1:true,k2:true})} className="px-2 py-0.5 bg-red-100 text-red-800 rounded-lg font-bold">4 ga</button>
-                    <button onClick={() => setEdges({u1:true,u2:true,k1:false,k2:false})} className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-lg font-bold">2 U</button>
-                    <button onClick={() => setEdges({u1:false,u2:false,k1:true,k2:true})} className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-lg font-bold">2 K</button>
-                    <button onClick={() => setEdges({u1:false,u2:false,k1:false,k2:false})} className="px-2 py-0.5 bg-stone-200 text-stone-700 rounded-lg font-bold">Yo'q</button>
-                  </div>
-                </div>
+    // --- Sub-Component: EdgeBandSelector ---
+    function EdgeBandSelector({ edgeBands, toggleEdge, edgePreset, applyEdgePreset, lengthVal, widthVal }) {
+      return (
+        <div className="bg-stone-100/80 rounded-2xl p-4 border border-stone-200/80 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-stone-800">Kromka (Chekka)</span>
+            <div className="flex items-center gap-1 bg-stone-200/70 p-1 rounded-xl">
+              {['4 ga', '2 U', '2 K', 'Yo\'q'].map((pKey) => {
+                const isSelected = edgePreset === pKey || (pKey === '4 ga' && edgePreset === '4ga');
+                return (
+                  <button
+                    key={pKey}
+                    type="button"
+                    onClick={() => applyEdgePreset(pKey === '4 ga' ? '4ga' : pKey)}
+                    className={`px-2 py-0.5 text-[11px] font-bold rounded-lg transition-all ${
+                      isSelected ? 'bg-amber-600 text-white shadow-2xs' : 'text-stone-700 hover:text-stone-900'
+                    }`}
+                  >
+                    {pKey}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-                <div className="relative w-full h-32 bg-white border border-stone-200 rounded-xl flex items-center justify-center p-4">
-                  <div className="relative w-36 h-20 bg-amber-100/60 border border-stone-300 rounded-lg flex items-center justify-center font-bold text-xs">
-                    {length || 'U'} × {width || 'K'} mm
-                    <button onClick={() => setEdges({...edges, u1: !edges.u1})} className={`absolute -top-2 left-0 right-0 h-4 font-bold text-[10px] ${edges.u1 ? 'bg-red-600 text-white':'bg-stone-200'}`}>U1</button>
-                    <button onClick={() => setEdges({...edges, u2: !edges.u2})} className={`absolute -bottom-2 left-0 right-0 h-4 font-bold text-[10px] ${edges.u2 ? 'bg-red-600 text-white':'bg-stone-200'}`}>U2</button>
-                    <button onClick={() => setEdges({...edges, k1: !edges.k1})} className={`absolute top-0 bottom-0 -left-2 w-4 font-bold text-[10px] ${edges.k1 ? 'bg-red-600 text-white':'bg-stone-200'}`}>K1</button>
-                    <button onClick={() => setEdges({...edges, k2: !edges.k2})} className={`absolute top-0 bottom-0 -right-2 w-4 font-bold text-[10px] ${edges.k2 ? 'bg-red-600 text-white':'bg-stone-200'}`}>K2</button>
-                  </div>
-                </div>
-
-                {/* Mobile touch buttons for U1, U2, K1, K2 */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2">
-                  <button type="button" onClick={() => setEdges({...edges, u1: !edges.u1})} className={`py-2 text-center text-xs rounded-xl font-bold border ${edges.u1 ? 'bg-red-600 text-white border-red-700':'bg-white text-stone-800 border-stone-300'}`}>U1: {edges.u1 ? '✓' : '—'}</button>
-                  <button type="button" onClick={() => setEdges({...edges, u2: !edges.u2})} className={`py-2 text-center text-xs rounded-xl font-bold border ${edges.u2 ? 'bg-red-600 text-white border-red-700':'bg-white text-stone-800 border-stone-300'}`}>U2: {edges.u2 ? '✓' : '—'}</button>
-                  <button type="button" onClick={() => setEdges({...edges, k1: !edges.k1})} className={`py-2 text-center text-xs rounded-xl font-bold border ${edges.k1 ? 'bg-red-600 text-white border-red-700':'bg-white text-stone-800 border-stone-300'}`}>K1: {edges.k1 ? '✓' : '—'}</button>
-                  <button type="button" onClick={() => setEdges({...edges, k2: !edges.k2})} className={`py-2 text-center text-xs rounded-xl font-bold border ${edges.k2 ? 'bg-red-600 text-white border-red-700':'bg-white text-stone-800 border-stone-300'}`}>K2: {edges.k2 ? '✓' : '—'}</button>
-                </div>
-              </div>
-
+          {/* Visual Interactive Board Representation */}
+          <div className="relative w-full aspect-[16/10] max-h-[170px] bg-stone-200/60 rounded-xl border border-stone-300/60 p-4 flex items-center justify-center my-1">
+            <div className="relative w-full h-full max-w-[220px] max-h-[120px] bg-amber-50 rounded border-2 border-stone-400 flex items-center justify-center shadow-2xs">
+              
+              {/* U1 Edge (Top) */}
               <button
                 type="button"
-                onClick={handleSubmit}
-                className="w-full h-14 bg-red-600 hover:bg-red-500 text-white font-black text-base rounded-2xl shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                onClick={() => toggleEdge('u1')}
+                className={`absolute -top-3.5 left-2 right-2 h-3.5 rounded-t-sm text-[10px] font-black tracking-wider flex items-center justify-center transition-all cursor-pointer ${
+                  edgeBands.u1 ? 'bg-red-600 text-white' : 'bg-stone-300 text-stone-500 hover:bg-stone-400'
+                }`}
               >
-                <span>DETALNI JADVALGA QO'SHISH</span>
+                U1
               </button>
+
+              {/* U2 Edge (Bottom) */}
+              <button
+                type="button"
+                onClick={() => toggleEdge('u2')}
+                className={`absolute -bottom-3.5 left-2 right-2 h-3.5 rounded-b-sm text-[10px] font-black tracking-wider flex items-center justify-center transition-all cursor-pointer ${
+                  edgeBands.u2 ? 'bg-red-600 text-white' : 'bg-stone-300 text-stone-500 hover:bg-stone-400'
+                }`}
+              >
+                U2
+              </button>
+
+              {/* K1 Edge (Left) */}
+              <button
+                type="button"
+                onClick={() => toggleEdge('k1')}
+                className={`absolute -left-3.5 top-2 bottom-2 w-3.5 rounded-l-sm text-[10px] font-black tracking-wider flex items-center justify-center transition-all cursor-pointer ${
+                  edgeBands.k1 ? 'bg-red-600 text-white' : 'bg-stone-300 text-stone-500 hover:bg-stone-400'
+                }`}
+              >
+                K1
+              </button>
+
+              {/* K2 Edge (Right) */}
+              <button
+                type="button"
+                onClick={() => toggleEdge('k2')}
+                className={`absolute -right-3.5 top-2 bottom-2 w-3.5 rounded-r-sm text-[10px] font-black tracking-wider flex items-center justify-center transition-all cursor-pointer ${
+                  edgeBands.k2 ? 'bg-red-600 text-white' : 'bg-stone-300 text-stone-500 hover:bg-stone-400'
+                }`}
+              >
+                K2
+              </button>
+
+              <div className="text-center">
+                <span className="text-xs font-black font-mono-num text-stone-800">
+                  {lengthVal} × {widthVal} mm
+                </span>
+              </div>
             </div>
           </div>
         </div>
       );
     }
 
-    // Parts Table Widget with Mobile Cards View and Desktop Table View
-    function PartsTableWidget({ parts, onDeletePart, onDuplicatePart, onUpdatePart }) {
-      const [editingId, setEditingId] = useState(null);
-      const [editForm, setEditForm] = useState(null);
-
-      const startEdit = (p) => {
-        setEditingId(p.id);
-        setEditForm({ ...p });
-      };
-
-      const saveEdit = () => {
-        if (editForm && onUpdatePart) {
-          onUpdatePart(editForm.id, editForm);
-          setEditingId(null);
-          setEditForm(null);
-        }
-      };
-
+    // --- Sub-Component: PartsTable ---
+    function PartsTable({ parts, onEdit, onDelete, editingId }) {
       if (parts.length === 0) {
         return (
-          <div className="bg-stone-50/90 rounded-2xl border-2 border-dashed border-stone-300 p-8 text-center mb-6">
-            <h3 className="text-base font-black text-stone-800 mb-1">Jadval bo'sh</h3>
-            <p className="text-xs text-stone-600">Yuqoridagi formadan o'lchamlarni kiriting.</p>
+          <div className="bg-white rounded-2xl border-2 border-dashed border-stone-200 p-8 text-center my-6">
+            <p className="text-stone-400 text-sm font-medium">Hozircha hech qanday detal qo'shilmadi.</p>
+            <p className="text-stone-500 text-xs mt-1">Yuqoridagi shakl orqali birinchi detalni kiriting.</p>
           </div>
         );
       }
 
-      const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
-      const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
-
       return (
-        <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 mb-6 overflow-hidden">
-          <div className="p-3.5 sm:p-4 border-b border-stone-200 flex justify-between items-center bg-white">
-            <h2 className="text-xs sm:text-sm font-bold uppercase text-stone-800">📊 Detallar ({parts.length} xil, {totalPcs} dona)</h2>
-            <span className="text-xs bg-red-50 text-red-700 px-3 py-1 rounded-xl font-bold border border-red-200">Jami: {totalM2.toFixed(3)} m²</span>
+        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden my-6">
+          <div className="px-6 py-4 bg-stone-50 border-b border-stone-200 flex justify-between items-center">
+            <h3 className="font-extrabold text-stone-800 text-sm uppercase tracking-wider">
+              Detallar Ro'yxati ({parts.length} tur)
+            </h3>
           </div>
 
-          {/* MOBILE CARDS VIEW (Phones) */}
-          <div className="block sm:hidden p-3 space-y-3">
-            {parts.map((p, idx) => {
-              const isEditing = editingId === p.id;
-
-              if (isEditing && editForm) {
-                return (
-                  <div key={p.id} className="bg-amber-50 p-3.5 rounded-2xl border-2 border-red-500 space-y-3 shadow-md">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-red-700">#{idx + 1} Detalni Tahrirlash</span>
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={saveEdit} type="button" className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold">Saqlash</button>
-                        <button onClick={() => setEditingId(null)} type="button" className="px-2.5 py-1.5 bg-stone-300 text-stone-700 rounded-xl text-xs font-bold">✕</button>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-stone-600 block mb-0.5">Uzunlik (mm)</label>
-                        <input type="number" value={editForm.length} onChange={(e) => setEditForm({...editForm, length: parseInt(e.target.value, 10) || 0})} className="w-full h-10 px-2.5 bg-white border rounded-xl text-sm font-bold" />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-stone-600 block mb-0.5">Kenglik (mm)</label>
-                        <input type="number" value={editForm.width} onChange={(e) => setEditForm({...editForm, width: parseInt(e.target.value, 10) || 0})} className="w-full h-10 px-2.5 bg-white border rounded-xl text-sm font-bold" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-stone-600 block mb-0.5">Miqdor (dona)</label>
-                        <input type="number" value={editForm.quantity} onChange={(e) => setEditForm({...editForm, quantity: parseInt(e.target.value, 10) || 1})} className="w-full h-10 px-2.5 bg-white border rounded-xl text-sm font-bold" />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-stone-600 block mb-0.5">Tekstura</label>
-                        <button type="button" onClick={() => setEditForm({...editForm, texture: !editForm.texture})} className={`w-full h-10 rounded-xl font-bold text-xs ${editForm.texture ? 'bg-amber-600 text-white' : 'bg-stone-200 text-stone-700'}`}>{editForm.texture ? 'Ha' : 'Yo\'q'}</button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-stone-600 block mb-0.5">Detal Nomi</label>
-                      <input type="text" value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="w-full h-10 px-2.5 bg-white border rounded-xl text-sm" />
-                    </div>
-                  </div>
-                );
-              }
-
-              return (
-                <div key={p.id} className="bg-white p-3.5 rounded-2xl border border-stone-200 shadow-2xs space-y-2.5">
-                  <div className="flex items-center justify-between border-b border-stone-100 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-full bg-stone-100 text-stone-600 font-bold text-xs flex items-center justify-center">
-                        {idx + 1}
-                      </span>
-                      <span className="font-extrabold text-stone-900 text-sm">{p.name || 'Detal'}</span>
-                    </div>
-                    <span className="px-2.5 py-1 bg-red-100 text-red-800 rounded-xl text-xs font-black">
-                      {p.quantity} dona
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-stone-50 p-2.5 rounded-xl border border-stone-100">
-                    <div className="text-center">
-                      <span className="block text-[10px] text-stone-400 uppercase font-bold">Uzunlik</span>
-                      <span className="text-base font-black font-mono-num text-stone-900">{p.length} mm</span>
-                    </div>
-                    <span className="text-stone-300 font-black text-lg">×</span>
-                    <div className="text-center">
-                      <span className="block text-[10px] text-stone-400 uppercase font-bold">Kenglik</span>
-                      <span className="text-base font-black font-mono-num text-stone-900">{p.width} mm</span>
-                    </div>
-                    <div className="text-center pl-2 border-l border-stone-200">
-                      <span className="block text-[10px] text-stone-400 uppercase font-bold">Tekstura</span>
-                      <span className={`text-xs font-bold ${p.texture ? 'text-amber-700' : 'text-stone-400'}`}>
-                        {p.texture ? 'Ha (✓)' : 'Yo\'q'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-stone-600">Kromka:</span>
-                    <div className="flex items-center gap-1 font-mono-num text-xs">
-                      <span className={`px-2 py-0.5 rounded-md font-bold ${p.edges.u1 ? 'bg-red-600 text-white':'bg-stone-100 text-stone-400'}`}>U1</span>
-                      <span className={`px-2 py-0.5 rounded-md font-bold ${p.edges.u2 ? 'bg-red-600 text-white':'bg-stone-100 text-stone-400'}`}>U2</span>
-                      <span className={`px-2 py-0.5 rounded-md font-bold ${p.edges.k1 ? 'bg-red-600 text-white':'bg-stone-100 text-stone-400'}`}>K1</span>
-                      <span className={`px-2 py-0.5 rounded-md font-bold ${p.edges.k2 ? 'bg-red-600 text-white':'bg-stone-100 text-stone-400'}`}>K2</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2 border-t border-stone-100">
-                    <button onClick={() => startEdit(p)} type="button" className="flex-1 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1">✏️ Tahrirlash</button>
-                    <button onClick={() => onDuplicatePart(p)} type="button" className="flex-1 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold flex items-center justify-center gap-1">📋 Nusxa</button>
-                    <button onClick={() => onDeletePart(p.id)} type="button" className="py-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold">🗑️</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* DESKTOP TABLE VIEW (Tablets & Desktop) */}
-          <div className="hidden sm:block overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-stone-100 text-stone-700 font-extrabold uppercase border-b border-stone-200">
-                  <th className="py-3 px-3">#</th>
-                  <th className="py-3 px-3">Uzunlik</th>
-                  <th className="py-3 px-3">Kenglik</th>
-                  <th className="py-3 px-3">Miqdor</th>
-                  <th className="py-3 px-3 text-center">Tekstura</th>
-                  <th className="py-3 px-3 text-center">U Kromka</th>
-                  <th className="py-3 px-3 text-center">K Kromka</th>
-                  <th className="py-3 px-3">Detal Nomi</th>
-                  <th className="py-3 px-3 text-right">Amallar</th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-stone-700">
+              <thead className="bg-stone-100 text-stone-600 uppercase font-extrabold text-[10px] tracking-wider border-b border-stone-200">
+                <tr>
+                  <th className="px-4 py-3 text-center">№</th>
+                  <th className="px-4 py-3">Detal Nomi</th>
+                  <th className="px-4 py-3 text-center">Uzunlik</th>
+                  <th className="px-4 py-3 text-center">Kenglik</th>
+                  <th className="px-4 py-3 text-center">Soni</th>
+                  <th className="px-4 py-3 text-center">Kromka</th>
+                  <th className="px-4 py-3 text-center">Tekstura</th>
+                  <th className="px-4 py-3 text-right">Amallar</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-stone-200">
-                {parts.map((p, idx) => (
-                  <tr key={p.id} className="hover:bg-amber-50/40">
-                    <td className="py-3 px-3 font-bold text-stone-400">{idx + 1}</td>
-                    <td className="py-3 px-3 font-black text-stone-900 text-sm">{p.length} mm</td>
-                    <td className="py-3 px-3 font-black text-stone-900 text-sm">{p.width} mm</td>
-                    <td className="py-3 px-3 font-black text-red-700 text-sm">{p.quantity} dona</td>
-                    <td className="py-3 px-3 text-center">{p.texture ? 'Ha (✓)' : 'Yo\'q'}</td>
-                    <td className="py-3 px-3 text-center font-mono-num">
-                      <span className={`px-1.5 py-0.5 rounded ${p.edges.u1 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>U1</span>
-                      <span className={`px-1.5 py-0.5 rounded ml-1 ${p.edges.u2 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>U2</span>
-                    </td>
-                    <td className="py-3 px-3 text-center font-mono-num">
-                      <span className={`px-1.5 py-0.5 rounded ${p.edges.k1 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>K1</span>
-                      <span className={`px-1.5 py-0.5 rounded ml-1 ${p.edges.k2 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>K2</span>
-                    </td>
-                    <td className="py-3 px-3 font-semibold">{p.name || '—'}</td>
-                    <td className="py-3 px-3 text-right space-x-1">
-                      <button onClick={() => startEdit(p)} className="p-1.5 text-stone-600 hover:text-stone-900">✏️</button>
-                      <button onClick={() => onDuplicatePart(p)} className="p-1.5 text-amber-600">📋</button>
-                      <button onClick={() => onDeletePart(p.id)} className="p-1.5 text-red-600">🗑️</button>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-stone-200 font-medium">
+                {parts.map((p, idx) => {
+                  const edges = [];
+                  if (p.edgeBands.u1) edges.push('U1');
+                  if (p.edgeBands.u2) edges.push('U2');
+                  if (p.edgeBands.k1) edges.push('K1');
+                  if (p.edgeBands.k2) edges.push('K2');
+
+                  return (
+                    <tr
+                      key={p.id}
+                      className={`hover:bg-amber-50/50 transition-all ${
+                        editingId === p.id ? 'bg-amber-100/60 font-bold' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3.5 text-center font-bold text-stone-400">{idx + 1}</td>
+                      <td className="px-4 py-3.5 font-bold text-stone-900">{p.name}</td>
+                      <td className="px-4 py-3.5 text-center font-bold font-mono-num text-stone-800">{p.length} mm</td>
+                      <td className="px-4 py-3.5 text-center font-bold font-mono-num text-stone-800">{p.width} mm</td>
+                      <td className="px-4 py-3.5 text-center">
+                        <span className="px-2.5 py-1 bg-stone-100 text-stone-800 font-black rounded-lg text-xs border border-stone-200">
+                          {p.quantity} dona
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        {edges.length > 0 ? (
+                          <div className="flex items-center justify-center gap-1">
+                            {edges.map(e => (
+                              <span key={e} className="px-1.5 py-0.5 bg-red-100 text-red-700 font-extrabold rounded text-[10px]">
+                                {e}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-stone-400 text-[11px]">Yo'q</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        {p.texture ? (
+                          <span className="text-amber-700 font-bold text-[11px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            🧭 Ha
+                          </span>
+                        ) : (
+                          <span className="text-stone-400 text-[11px]">Yo'q</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-right space-x-2">
+                        <button
+                          onClick={() => onEdit(p)}
+                          className="px-2.5 py-1 text-xs font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg cursor-pointer"
+                        >
+                          Tahrirlash
+                        </button>
+                        <button
+                          onClick={() => onDelete(p.id)}
+                          className="px-2.5 py-1 text-xs font-bold text-red-700 bg-red-100 hover:bg-red-200 rounded-lg cursor-pointer"
+                        >
+                          O'chirish
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -787,64 +851,58 @@
       );
     }
 
-    // Compact Order Summary Widget
-    function OrderSummaryWidget({ customer, parts, onDownloadExcel, onSendTelegram, isSending }) {
-      const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
-      const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
-
+    // --- Sub-Component: OrderSummaryBar ---
+    function OrderSummaryBar({ partCount, totalArea, totalEdge, onExportExcel, onSendTelegram, hasParts }) {
       return (
-        <div className="fixed sm:sticky bottom-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-md text-white border-t sm:border border-slate-800 sm:rounded-2xl shadow-2xl p-3 sm:p-5 sm:mb-8">
-          
-          {/* Desktop stats (Hidden on mobile) */}
-          <div className="hidden sm:grid sm:grid-cols-3 gap-3 mb-4 pb-4 border-b border-slate-800">
-            <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Jami Yuzasi</span>
-              <span className="text-xl font-black text-amber-400">{totalM2.toFixed(2)} m²</span>
-            </div>
-            <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Detallar Soni</span>
-              <span className="text-xl font-black text-red-400">{totalPcs} dona</span>
-            </div>
-            <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Material</span>
-              <span className="text-sm font-bold text-emerald-400 truncate block">{customer.material || 'Kiritilmagan'}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-2 max-w-7xl mx-auto">
-            {/* Mobile Summary */}
-            <div className="flex items-baseline gap-2 font-mono-num">
-              <span className="text-base sm:text-lg font-black text-amber-400 whitespace-nowrap">
-                {totalM2.toFixed(2)} m²
-              </span>
-              <span className="text-xs font-bold text-red-400 whitespace-nowrap">
-                • {totalPcs} dona
-              </span>
+        <div className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-amber-950/40 text-white p-3 sm:p-4 z-40 shadow-2xl">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+            
+            {/* Stats */}
+            <div className="flex items-center justify-around sm:justify-start gap-4 sm:gap-8 w-full sm:w-auto text-center sm:text-left">
+              <div>
+                <span className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider">Jami Detallar</span>
+                <span className="text-base sm:text-lg font-black font-mono-num text-amber-400">{partCount} dona</span>
+              </div>
+              <div className="h-8 w-px bg-slate-800"></div>
+              <div>
+                <span className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider">Maydon (m²)</span>
+                <span className="text-base sm:text-lg font-black font-mono-num text-amber-400">{totalArea.toFixed(2)} m²</span>
+              </div>
+              <div className="h-8 w-px bg-slate-800"></div>
+              <div>
+                <span className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider">Kromka</span>
+                <span className="text-base sm:text-lg font-black font-mono-num text-amber-400">{totalEdge.toFixed(1)} m</span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            {/* Actions */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
-                onClick={onDownloadExcel}
-                disabled={parts.length === 0}
-                className="h-10 sm:h-11 px-2.5 sm:px-4 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 disabled:opacity-50 cursor-pointer"
-                title="Excel (.xlsx)"
+                onClick={onExportExcel}
+                disabled={!hasParts}
+                type="button"
+                className="flex-1 sm:flex-initial h-12 px-4 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
               >
-                📊 <span className="hidden sm:inline">EXCEL FAYL</span>
+                <span>📊 Excel Yuklash</span>
               </button>
               <button
                 onClick={onSendTelegram}
-                disabled={isSending || parts.length === 0}
-                className="h-10 sm:h-11 px-3.5 sm:px-6 bg-red-600 hover:bg-red-500 text-white font-black text-xs sm:text-sm rounded-xl shadow-md disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                disabled={!hasParts}
+                type="button"
+                className="flex-1 sm:flex-initial h-12 px-5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
               >
-                {isSending ? 'YUBORILMOQDA...' : '🚀 BUYURTMANI YUBORISH'}
+                <span>✈️ Buyurtmani Yuborish</span>
               </button>
             </div>
+
           </div>
         </div>
       );
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    // Render App
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
   </script>
 </body>
 </html>
