@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ilHOME - Wood & Serve Raskroy Buyurtma Tizimi</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- React & ReactDOM CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel Standalone for JSX compilation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- SheetJS (XLSX) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #F7F3ED;
+      color: #1E1E24;
+    }
+    .font-script {
+      font-family: 'Caveat', cursive;
+    }
+    .font-mono-num {
+      font-feature-settings: "tnum";
+      font-variant-numeric: tabular-nums;
+    }
+    @media screen and (max-width: 768px) {
+      input, select, textarea {
+        font-size: 16px !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Presets
+    const MATERIAL_PRESETS = [
+      "LDSP 18mm Oq",
+      "LDSP 18mm Yong'oq",
+      "LDSP 18mm Eman",
+      "MDF 18mm Oq",
+      "LDSP 18mm Kulrang",
+    ];
+
+    const PART_NAME_SUGGESTIONS = [
+      "Yon devor",
+      "Tepa qopqoq",
+      "Polka",
+      "G'aladon yoni",
+      "G'aladon osti",
+      "Fasad / Eshik",
+      "Javroncha"
+    ];
+
+    const COMMON_DIMENSIONS = [2800, 2070, 700, 560, 400, 300, 100];
+
+    const SAMPLE_CUSTOMER = {
+      name: "Sardor Rahimov",
+      phone: "+998 90 123 45 67",
+      material: "LDSP 18mm Yong'oq"
+    };
+
+    const SAMPLE_PARTS = [
+      { id: "s1", length: 2000, width: 500, quantity: 2, texture: true, edges: { u1: true, u2: true, k1: true, k2: true }, name: "Shkaf yon devori" },
+      { id: "s2", length: 800, width: 500, quantity: 4, texture: true, edges: { u1: true, u2: false, k1: true, k2: true }, name: "Polka" },
+      { id: "s3", length: 796, width: 396, quantity: 2, texture: true, edges: { u1: true, u2: true, k1: true, k2: true }, name: "Fasad / Eshik" },
+      { id: "s4", length: 450, width: 150, quantity: 8, texture: false, edges: { u1: true, u2: false, k1: false, k2: false }, name: "G'aladon yoni" }
+    ];
+
+    // Main App
+    function App() {
+      const [customer, setCustomer] = useState(() => {
+        const saved = localStorage.getItem('ilhome_customer');
+        return saved ? JSON.parse(saved) : { name: '', phone: '', material: '' };
+      });
+
+      const [parts, setParts] = useState(() => {
+        const saved = localStorage.getItem('ilhome_parts');
+        return saved ? JSON.parse(saved) : [];
+      });
+
+      const [telegramConfig, setTelegramConfig] = useState(() => {
+        const saved = localStorage.getItem('ilhome_telegram_config');
+        return saved ? JSON.parse(saved) : { botToken: '', chatId: '' };
+      });
+
+      const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+      const [isSending, setIsSending] = useState(false);
+      const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+      useEffect(() => {
+        localStorage.setItem('ilhome_customer', JSON.stringify(customer));
+      }, [customer]);
+
+      useEffect(() => {
+        localStorage.setItem('ilhome_parts', JSON.stringify(parts));
+      }, [parts]);
+
+      useEffect(() => {
+        localStorage.setItem('ilhome_telegram_config', JSON.stringify(telegramConfig));
+      }, [telegramConfig]);
+
+      const handleAddPart = (newPart) => {
+        setParts(prev => [...prev, newPart]);
+      };
+
+      const handleUpdatePart = (id, updated) => {
+        setParts(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
+      };
+
+      const handleDeletePart = (id) => {
+        setParts(prev => prev.filter(p => p.id !== id));
+      };
+
+      const handleDuplicatePart = (part) => {
+        const dup = { ...part, id: 'part_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4) };
+        setParts(prev => [...prev, dup]);
+      };
+
+      const handleLoadSample = () => {
+        setCustomer(SAMPLE_CUSTOMER);
+        setParts(SAMPLE_PARTS);
+      };
+
+      const handleClearOrder = () => {
+        if (window.confirm("Barcha kiritilgan detallar va mijoz ma'lumotlarini o'chirishni xohlaysizmi?")) {
+          setParts([]);
+          setCustomer({ name: '', phone: '', material: '' });
+        }
+      };
+
+      // Export Excel
+      const handleDownloadExcel = () => {
+        if (parts.length === 0) return;
+
+        const data = [
+          ["ilHOME WOOD & SERVE - RASKROY BUYURTMA FAYLI"],
+          ["Mijoz Ismi:", customer.name || "Kiritilmagan"],
+          ["Telefon:", customer.phone || "Kiritilmagan"],
+          ["Material:", customer.material || "Kiritilmagan"],
+          ["Sana:", new Date().toLocaleDateString('uz-UZ')],
+          [],
+          ["№", "Uzunlik (mm)", "Kenglik (mm)", "Miqdor (dona)", "Tekstura", "U1 Kromka", "U2 Kromka", "K1 Kromka", "K2 Kromka", "Detal Nomi", "Yuza (m²)"],
+          ...parts.map((p, idx) => [
+            idx + 1,
+            p.length,
+            p.width,
+            p.quantity,
+            p.texture ? "HA" : "YO'Q",
+            p.edges.u1 ? "Kromka" : "—",
+            p.edges.u2 ? "Kromka" : "—",
+            p.edges.k1 ? "Kromka" : "—",
+            p.edges.k2 ? "Kromka" : "—",
+            p.name || "Detal",
+            ((p.length * p.width * p.quantity) / 1_000_000).toFixed(3)
+          ])
+        ];
+
+        const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
+        const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
+
+        data.push([]);
+        data.push(["JAMI DETALLAR SONI:", totalPcs + " dona"]);
+        data.push(["UMUMIY YUZA:", totalM2.toFixed(3) + " m²"]);
+
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Buyurtma");
+
+        const fileName = `Raskroy_${(customer.name || 'Buyurtma').replace(/\s+/g, '_')}_${Date.now()}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+      };
+
+      // Send to Telegram
+      const handleSendTelegram = async () => {
+        if (!customer.name.trim() || !customer.phone.trim() || !customer.material.trim()) {
+          alert("Iltimos, avval Mijoz ismi, telefon nomeri va material nomini to'liq kiriting!");
+          return;
+        }
+
+        if (parts.length === 0) {
+          alert("Iltimos, kamida 1 ta detal qo'shing!");
+          return;
+        }
+
+        if (!telegramConfig.botToken || !telegramConfig.chatId) {
+          setIsSettingsOpen(true);
+          alert("Telegram Bot token yoki Chat ID sozlangan emas. Iltimos, sozlamalarni kiriting!");
+          return;
+        }
+
+        setIsSending(true);
+
+        try {
+          const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
+          const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
+
+          let msg = `🛍 *YANGI RASKROY BUYURTMA — ilHOME*\n\n`;
+          msg += `👤 *Mijoz:* ${customer.name}\n`;
+          msg += `📞 *Tel:* ${customer.phone}\n`;
+          msg += `🪵 *Material:* ${customer.material}\n`;
+          msg += `📊 *Jami:* ${parts.length} xil detal (${totalPcs} dona), ${totalM2.toFixed(2)} m²\n\n`;
+          msg += `📐 *Detallar ro'yxati:*\n`;
+
+          parts.forEach((p, i) => {
+            const uStr = (p.edges.u1 ? 'U1 ' : '') + (p.edges.u2 ? 'U2 ' : '');
+            const kStr = (p.edges.k1 ? 'K1 ' : '') + (p.edges.k2 ? 'K2 ' : '');
+            const edgesStr = (uStr || kStr) ? `[Kromka: ${uStr}${kStr}]` : '[Kromkasiz]';
+            const texStr = p.texture ? '🪵Tekstura' : '';
+            msg += `${i+1}. *${p.length}x${p.width}mm* - ${p.quantity}dona | ${p.name || 'Detal'} ${texStr} ${edgesStr}\n`;
+          });
+
+          // Text message API
+          const textUrl = `https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`;
+          const res = await fetch(textUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: telegramConfig.chatId,
+              text: msg,
+              parse_mode: 'Markdown'
+            })
+          });
+
+          if (!res.ok) {
+            throw new Error("Telegram API xatosi: " + res.statusText);
+          }
+
+          setShowSuccessModal(true);
+        } catch (err) {
+          alert("Xatolik yuz berdi: " + err.message);
+        } finally {
+          setIsSending(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Header */}
+          <header className="bg-slate-900 border-b border-amber-950/40 text-white sticky top-0 z-30 shadow-md">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col select-none">
+                  <div className="flex items-baseline gap-0.5">
+                    <span className="relative font-script text-3xl sm:text-4xl font-bold text-red-600 tracking-wide flex items-center">
+                      il
+                    </span>
+                    <span className="font-display text-2xl sm:text-3xl font-extrabold text-white tracking-wider ml-0.5">
+                      HOME
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-semibold text-amber-200/80 tracking-[0.2em] -mt-1 uppercase">
+                    WOOD & SERVE
+                  </span>
+                </div>
+                <span className="hidden md:inline-block px-2.5 py-0.5 text-[11px] font-semibold bg-amber-950/60 text-amber-200 rounded-full border border-amber-800/40">
+                  Raskroy buyurtma tizimi
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleLoadSample}
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all cursor-pointer"
+                >
+                  ✨ <span className="hidden sm:inline">Namuna yuklash</span>
+                </button>
+
+                <button
+                  onClick={handleClearOrder}
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-300 hover:text-rose-200 bg-rose-950/60 hover:bg-rose-900/80 border border-rose-800/60 rounded-xl transition-all cursor-pointer"
+                >
+                  🔄 <span className="hidden sm:inline">Tozalash</span>
+                </button>
+
+                <button
+                  onClick={() => setIsSettingsOpen(true)}
+                  type="button"
+                  className="relative flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-red-600 hover:bg-red-500 text-white border border-red-500 rounded-xl shadow-sm transition-all cursor-pointer"
+                >
+                  ⚙️ <span className="hidden sm:inline">Bot Sozlamalari</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Body */}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            
+            {/* Customer & Material Form */}
+            <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 p-4 sm:p-6 mb-6">
+              <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-stone-200/80">
+                <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-800 flex items-center gap-2">
+                  👤 Mijoz Ma'lumotlari
+                </h2>
+                <span className="text-xs text-stone-500 font-medium">1-bosqich: Mijoz va Material</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">Mijoz Ismi <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={customer.name}
+                    onChange={(e) => setCustomer({...customer, name: e.target.value})}
+                    placeholder="Masalan: Alisher Navoiy"
+                    className="w-full px-3.5 h-12 text-base font-medium bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 text-stone-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">Telefon Nomeri <span className="text-red-500">*</span></label>
+                  <input
+                    type="tel"
+                    value={customer.phone}
+                    onChange={(e) => setCustomer({...customer, phone: e.target.value})}
+                    placeholder="+998 90 123 45 67"
+                    className="w-full px-3.5 h-12 text-base font-bold font-mono-num bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 text-stone-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">Material Nomi <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={customer.material}
+                    onChange={(e) => setCustomer({...customer, material: e.target.value})}
+                    placeholder="Masalan: LDSP 18mm Yong'oq"
+                    className="w-full px-3.5 h-12 text-base font-medium bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-500 text-stone-900"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-1.5 pt-2 border-t border-stone-200/50">
+                <span className="text-[11px] text-stone-500 font-semibold mr-1">🏷️ Tezkor material:</span>
+                {MATERIAL_PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setCustomer({...customer, material: p})}
+                    className={`px-3 py-1.5 text-xs rounded-xl border transition-all cursor-pointer ${
+                      customer.material === p
+                        ? 'bg-red-50 text-red-700 border-red-300 font-bold'
+                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-200'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Part Input Panel */}
+            <PartInputWidget onAddPart={handleAddPart} />
+
+            {/* Parts Table */}
+            <PartsTableWidget
+              parts={parts}
+              onUpdatePart={handleUpdatePart}
+              onDeletePart={handleDeletePart}
+              onDuplicatePart={handleDuplicatePart}
+              onLoadSample={handleLoadSample}
+            />
+
+            {/* Order Summary Bar */}
+            <OrderSummaryWidget
+              customer={customer}
+              parts={parts}
+              onDownloadExcel={handleDownloadExcel}
+              onSendTelegram={handleSendTelegram}
+              isSending={isSending}
+            />
+          </main>
+
+          {/* Telegram Settings Modal */}
+          {isSettingsOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg p-6">
+                <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+                  <h3 className="font-extrabold text-base text-slate-900">Telegram Bot Sozlamalari</h3>
+                  <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-700">✕</button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Bot Token</label>
+                    <input
+                      type="text"
+                      value={telegramConfig.botToken}
+                      onChange={(e) => setTelegramConfig({...telegramConfig, botToken: e.target.value})}
+                      placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                      className="w-full h-11 px-3 border border-slate-300 rounded-xl text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Chat ID / Kanal ID</label>
+                    <input
+                      type="text"
+                      value={telegramConfig.chatId}
+                      onChange={(e) => setTelegramConfig({...telegramConfig, chatId: e.target.value})}
+                      placeholder="-100123456789 yoki 987654321"
+                      className="w-full h-11 px-3 border border-slate-300 rounded-xl text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="mt-6 flex justify-end gap-2">
+                  <button onClick={() => setIsSettingsOpen(false)} className="px-4 py-2 bg-stone-200 text-stone-800 rounded-xl text-xs font-bold">Yopish</button>
+                  <button onClick={() => { setIsSettingsOpen(false); alert("Sozlamalar saqlandi!"); }} className="px-5 py-2 bg-red-600 text-white rounded-xl text-xs font-bold">Saqlash</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Success Modal */}
+          {showSuccessModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+              <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center space-y-4">
+                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-2xl">✓</div>
+                <h3 className="text-lg font-black text-slate-900">Buyurtma Yuborildi!</h3>
+                <p className="text-xs text-slate-600">Buyurtma Telegram boti orqali muvaffaqiyatli yetkazildi.</p>
+                <button onClick={() => setShowSuccessModal(false)} className="w-full py-3 bg-red-600 text-white font-bold rounded-xl text-sm">Yaxshi</button>
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <footer className="bg-slate-950 text-stone-400 text-xs py-8 border-t border-amber-950/40 mt-auto">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+              <div className="flex items-center gap-2">
+                <span className="font-script text-3xl font-extrabold text-red-500">il</span>
+                <span className="font-extrabold tracking-wider text-xl text-stone-100">HOME</span>
+                <span className="text-[10px] uppercase font-bold tracking-widest text-amber-500 border-l border-stone-800 pl-2.5">WOOD & SERVE</span>
+              </div>
+              <div className="text-stone-400 text-xs font-medium">
+                LDSP va Mebellar uchun Avtomatik Excel (.xlsx) va Telegram Buyurtma Tizimi
+              </div>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    // Part Input Widget
+    function PartInputWidget({ onAddPart }) {
+      const [length, setLength] = useState('');
+      const [width, setWidth] = useState('');
+      const [quantity, setQuantity] = useState('1');
+      const [texture, setTexture] = useState(true);
+      const [name, setName] = useState('');
+      const [edges, setEdges] = useState({ u1: true, u2: true, k1: true, k2: true });
+
+      const adjustQty = (delta) => {
+        const cur = parseInt(quantity, 10) || 1;
+        setQuantity(Math.max(1, cur + delta).toString());
+      };
+
+      const handleSubmit = (e) => {
+        if (e) e.preventDefault();
+        const l = parseInt(length, 10);
+        const w = parseInt(width, 10);
+        const q = parseInt(quantity, 10);
+
+        if (!l || l <= 0 || !w || w <= 0 || !q || q <= 0) {
+          alert("Iltimos, uzunlik, kenglik va miqdorni to'g'ri kiriting!");
+          return;
+        }
+
+        onAddPart({
+          id: 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          length: l,
+          width: w,
+          quantity: q,
+          texture,
+          edges,
+          name: name.trim() || 'Detal'
+        });
+
+        setLength('');
+        setWidth('');
+        setName('');
+      };
+
+      return (
+        <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 p-4 sm:p-6 mb-6">
+          <div className="flex items-center justify-between mb-4 pb-2.5 border-b border-stone-200/80">
+            <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-800">
+              ➕ Yangi Detal Qo'shish
+            </h2>
+            <span className="text-xs text-stone-500 font-medium">2-bosqich: O'lchamlar va Kromka</span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-extrabold text-stone-800 block mb-1">Uzunlik (mm) *</label>
+                  <input
+                    type="number"
+                    value={length}
+                    onChange={(e) => setLength(e.target.value)}
+                    placeholder="700"
+                    className="w-full h-14 px-4 text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-2xl"
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {COMMON_DIMENSIONS.slice(0, 4).map((dim) => (
+                      <button key={dim} type="button" onClick={() => setLength(dim.toString())} className="px-2 py-0.5 text-[11px] font-bold bg-white border border-stone-200 rounded-lg">{dim}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-extrabold text-stone-800 block mb-1">Kenglik (mm) *</label>
+                  <input
+                    type="number"
+                    value={width}
+                    onChange={(e) => setWidth(e.target.value)}
+                    placeholder="400"
+                    className="w-full h-14 px-4 text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-2xl"
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {COMMON_DIMENSIONS.slice(2, 6).map((dim) => (
+                      <button key={dim} type="button" onClick={() => setWidth(dim.toString())} className="px-2 py-0.5 text-[11px] font-bold bg-white border border-stone-200 rounded-lg">{dim}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-extrabold text-stone-800 block mb-1">Miqdor (dona) *</label>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => adjustQty(-1)} className="w-12 h-14 bg-stone-200 rounded-2xl font-bold text-lg">-</button>
+                    <input
+                      type="number"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      className="w-full h-14 text-center text-xl font-black font-mono-num bg-white border-2 border-stone-300 rounded-2xl"
+                    />
+                    <button type="button" onClick={() => adjustQty(1)} className="w-12 h-14 bg-red-100 text-red-700 rounded-2xl font-bold text-lg">+</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div>
+                  <label className="block text-xs font-extrabold text-stone-800 mb-1">Tekstura (Yog'och Yo'nalishi)</label>
+                  <button
+                    type="button"
+                    onClick={() => setTexture(!texture)}
+                    className={`w-full h-12 px-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between ${texture ? 'bg-amber-100/80 text-amber-950 border-amber-300' : 'bg-stone-200/70 text-stone-600'}`}
+                  >
+                    <span>🧭 Tekstura</span>
+                    <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-600 text-white">{texture ? 'Ha (Muhim)' : 'Yo\'q'}</span>
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold text-stone-800 mb-1">Detal Nomi</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Masalan: Yon devor"
+                    className="w-full h-12 px-3.5 text-base font-medium bg-white border border-stone-300 rounded-2xl"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] text-stone-500 font-bold mr-1">Tavsiyalar:</span>
+                {PART_NAME_SUGGESTIONS.map((s) => (
+                  <button key={s} type="button" onClick={() => setName(s)} className="px-2.5 py-1 text-xs bg-white text-stone-700 border border-stone-200 rounded-xl">{s}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Edge Selector */}
+            <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
+              <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-bold text-stone-800">Kromka (Chekka)</span>
+                  <div className="flex gap-1 text-[11px]">
+                    <button onClick={() => setEdges({u1:true,u2:true,k1:true,k2:true})} className="px-2 py-0.5 bg-red-100 text-red-800 rounded-lg font-bold">4 ga</button>
+                    <button onClick={() => setEdges({u1:true,u2:true,k1:false,k2:false})} className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-lg font-bold">2 U</button>
+                    <button onClick={() => setEdges({u1:false,u2:false,k1:true,k2:true})} className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-lg font-bold">2 K</button>
+                    <button onClick={() => setEdges({u1:false,u2:false,k1:false,k2:false})} className="px-2 py-0.5 bg-stone-200 text-stone-700 rounded-lg font-bold">Yo'q</button>
+                  </div>
+                </div>
+
+                <div className="relative w-full h-32 bg-white border border-stone-200 rounded-xl flex items-center justify-center p-4">
+                  <div className="relative w-36 h-20 bg-amber-100/60 border border-stone-300 rounded-lg flex items-center justify-center font-bold text-xs">
+                    {length || 'U'} × {width || 'K'} mm
+                    <button onClick={() => setEdges({...edges, u1: !edges.u1})} className={`absolute -top-2 left-0 right-0 h-4 font-bold text-[10px] ${edges.u1 ? 'bg-red-600 text-white':'bg-stone-200'}`}>U1</button>
+                    <button onClick={() => setEdges({...edges, u2: !edges.u2})} className={`absolute -bottom-2 left-0 right-0 h-4 font-bold text-[10px] ${edges.u2 ? 'bg-red-600 text-white':'bg-stone-200'}`}>U2</button>
+                    <button onClick={() => setEdges({...edges, k1: !edges.k1})} className={`absolute top-0 bottom-0 -left-2 w-4 font-bold text-[10px] ${edges.k1 ? 'bg-red-600 text-white':'bg-stone-200'}`}>K1</button>
+                    <button onClick={() => setEdges({...edges, k2: !edges.k2})} className={`absolute top-0 bottom-0 -right-2 w-4 font-bold text-[10px] ${edges.k2 ? 'bg-red-600 text-white':'bg-stone-200'}`}>K2</button>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSubmit}
+                className="w-full h-14 bg-red-600 hover:bg-red-500 text-white font-black text-base rounded-2xl shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>DETALNI JADVALGA QO'SHISH</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Parts Table Widget
+    function PartsTableWidget({ parts, onDeletePart, onDuplicatePart, onLoadSample }) {
+      if (parts.length === 0) {
+        return (
+          <div className="bg-stone-50/90 rounded-2xl border-2 border-dashed border-stone-300 p-8 text-center mb-6">
+            <h3 className="text-lg font-black text-stone-800 mb-1">Jadval hozircha bo'sh</h3>
+            <p className="text-xs text-stone-600 mb-4">Yuqoridagi formadan detallarni kiriting yoki namunani yuklang.</p>
+            <button onClick={onLoadSample} className="px-5 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold">✨ Namuna Yuklash</button>
+          </div>
+        );
+      }
+
+      const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
+      const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
+
+      return (
+        <div className="bg-stone-50/90 rounded-2xl shadow-sm border border-stone-200/90 mb-6 overflow-hidden">
+          <div className="p-4 border-b border-stone-200 flex justify-between items-center bg-white">
+            <h2 className="text-xs sm:text-sm font-bold uppercase text-stone-800">📊 Kesiladigan Detallar ({parts.length} xil, {totalPcs} dona)</h2>
+            <span className="text-xs bg-red-50 text-red-700 px-3 py-1 rounded-xl font-bold">Jami: {totalM2.toFixed(3)} m²</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-stone-100 text-stone-700 font-extrabold uppercase border-b border-stone-200">
+                  <th className="py-3 px-3">#</th>
+                  <th className="py-3 px-3">Uzunlik</th>
+                  <th className="py-3 px-3">Kenglik</th>
+                  <th className="py-3 px-3">Miqdor</th>
+                  <th className="py-3 px-3 text-center">Tekstura</th>
+                  <th className="py-3 px-3 text-center">U Kromka</th>
+                  <th className="py-3 px-3 text-center">K Kromka</th>
+                  <th className="py-3 px-3">Detal Nomi</th>
+                  <th className="py-3 px-3 text-right">Amallar</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-200">
+                {parts.map((p, idx) => (
+                  <tr key={p.id} className="hover:bg-amber-50/40">
+                    <td className="py-3 px-3 font-bold text-stone-400">{idx + 1}</td>
+                    <td className="py-3 px-3 font-black text-stone-900 text-sm">{p.length} mm</td>
+                    <td className="py-3 px-3 font-black text-stone-900 text-sm">{p.width} mm</td>
+                    <td className="py-3 px-3 font-black text-red-700 text-sm">{p.quantity} dona</td>
+                    <td className="py-3 px-3 text-center">{p.texture ? 'Ha (✓)' : 'Yo\'q'}</td>
+                    <td className="py-3 px-3 text-center font-mono-num">
+                      <span className={`px-1.5 py-0.5 rounded ${p.edges.u1 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>U1</span>
+                      <span className={`px-1.5 py-0.5 rounded ml-1 ${p.edges.u2 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>U2</span>
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono-num">
+                      <span className={`px-1.5 py-0.5 rounded ${p.edges.k1 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>K1</span>
+                      <span className={`px-1.5 py-0.5 rounded ml-1 ${p.edges.k2 ? 'bg-red-600 text-white font-bold':'bg-stone-100 text-stone-400'}`}>K2</span>
+                    </td>
+                    <td className="py-3 px-3 font-semibold">{p.name || '—'}</td>
+                    <td className="py-3 px-3 text-right space-x-1">
+                      <button onClick={() => onDuplicatePart(p)} className="p-1.5 text-amber-600">📋</button>
+                      <button onClick={() => onDeletePart(p.id)} className="p-1.5 text-red-600">🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // Order Summary Widget
+    function OrderSummaryWidget({ customer, parts, onDownloadExcel, onSendTelegram, isSending }) {
+      const totalM2 = parts.reduce((acc, p) => acc + (p.length * p.width * p.quantity) / 1_000_000, 0);
+      const totalPcs = parts.reduce((acc, p) => acc + p.quantity, 0);
+
+      return (
+        <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-xl sticky bottom-3 z-20">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4 pb-4 border-b border-slate-800">
+            <div className="bg-slate-800 p-3 rounded-2xl">
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">Jami Yuzasi</span>
+              <span className="text-2xl font-black text-amber-400">{totalM2.toFixed(2)} m²</span>
+            </div>
+            <div className="bg-slate-800 p-3 rounded-2xl">
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">Detallar Soni</span>
+              <span className="text-2xl font-black text-red-400">{totalPcs} dona</span>
+            </div>
+            <div className="bg-slate-800 p-3 rounded-2xl col-span-2 lg:col-span-1">
+              <span className="text-[10px] text-slate-400 uppercase font-bold block">Material</span>
+              <span className="text-lg font-bold text-emerald-400 truncate block">{customer.material || 'Kiritilmagan'}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <span className="text-xs text-slate-400">✅ Fayl .xlsx shaklida yuklanadi va Telegram bot orqali yuboriladi.</span>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button
+                onClick={onDownloadExcel}
+                disabled={parts.length === 0}
+                className="flex-1 sm:flex-none px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-2xl border border-slate-700 disabled:opacity-50 cursor-pointer"
+              >
+                📊 EXCEL FAYL (.XLSX)
+              </button>
+              <button
+                onClick={onSendTelegram}
+                disabled={isSending || parts.length === 0}
+                className="flex-1 sm:flex-none px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-black text-xs rounded-2xl shadow-lg disabled:opacity-50 cursor-pointer"
+              >
+                {isSending ? 'YUBORILMOQDA...' : '🚀 BUYURTMANI YUBORISH'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
